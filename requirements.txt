@@ -1,0 +1,4 @@
+opencv-python
+python-doctr[torch]
+scikit-learn
+pdf2image

@@ -1,0 +1,36 @@
+# virtual environment
+.venv/
+venv/
+env/
+
+# EasyOCR model cache (downloaded automatically on first run, ~200MB)
+~/.EasyOCR/
+.EasyOCR/
+
+# python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# test results and output images
+results/
+*.jpg
+*.jpeg
+*.png
+*.pdf
+
+# sample documents (never commit real identity documents)
+tests/samples/
+
+# environment variables and secrets
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
