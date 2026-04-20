@@ -34,3 +34,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.code-workspace
+
+
+app/ocr/test.py

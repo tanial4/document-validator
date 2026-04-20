@@ -1,8 +1,7 @@
 import argparse
-import json
 
-from ocr import process
-from visualization import visualize, print_report
+from app.ocr.ocr import process
+from app.ocr.visualization import visualize, print_report
 
 
 def main():
@@ -16,9 +15,6 @@ def main():
 
     print_report(output)
     visualize(image_bgr, output, args.output)
-
-    print("\n── AGENT OUTPUT (JSON) ──────────────────────────────────")
-    print(json.dumps(output, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

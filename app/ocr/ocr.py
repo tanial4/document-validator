@@ -18,8 +18,8 @@ try:
 except ImportError:
     PDF2IMAGE_OK = False
 
-from classification import classify_words
-from reconstruction import build_agent_output
+from .classification import classify_words
+from .reconstruction import build_agent_output
 
 
 def load_image(path: str) -> list[np.ndarray]:
@@ -42,7 +42,15 @@ def run_easyocr(image_bgr: np.ndarray,
                 page: int = 1,
                 debug: bool = False) -> list[dict]:
     h, w = image_bgr.shape[:2]
-    raw  = reader.readtext(image_bgr)
+    raw = reader.readtext(
+        image_bgr,
+        paragraph=False,
+        detail=1,
+        width_ths=0.7,      # más alto = agrupa más caracteres cercanos
+        contrast_ths=0.1,
+        adjust_contrast=0.5,
+        link_threshold=0.3  # controla cómo CRAFT une caracteres en palabras
+    )
 
     words = []
     for (bbox, text, confidence) in raw:
@@ -69,7 +77,11 @@ def run_easyocr(image_bgr: np.ndarray,
 
 def process(image_path: str, debug: bool = False) -> tuple[dict, np.ndarray]:
     print("Loading EasyOCR models (downloads ~200MB on first run)...")
-    reader = easyocr.Reader(['en', 'hi'], gpu=False)
+    reader = easyocr.Reader(
+        ['en', 'hi'],
+        gpu=False,
+        recog_network='standard'  # prueba cambiar a 'latin_g2'
+    )
 
     images = load_image(image_path)
     print(f"Pages found: {len(images)}")
