@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(xargs -I{} basename {})",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(xargs grep *)"
     ]
   }
 }
