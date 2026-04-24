@@ -1,88 +1,74 @@
 import json
 import re
 import requests
+from models import PipelineOutput, MRZResult, Config
 
 
-OLLAMA_URL   = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "gemma3:4b"
-
-DOCUMENT_SCHEMAS = {
-    "visa": [
-        "surname_and_given_name", "passport_no", "visa_type",
-        "no_of_entries","date_of_issue","date_of_expiry(dd/mm/yyyy)",
-        "special_endorsment"
-    ],
-    "pan": [
-        "name", "father_name", "date_of_birth", "pan_number"
-    ],
-    "aadhaar": [
-        "name", "date_of_birth", "gender", "address",
-        "pincode", "aadhaar_number"
-    ],
-    "passport": [
-        "surname", "given_name", "nationality", "date_of_birth",
-        "place_of_birth", "date_of_issue", "date_of_expiry",
-        "passport_number", "place_of_issue", "gender", "file_number"
-    ]
-}
-
-VALUE_PATTERNS = {
-    "date"           : r"\d{2}[/\-]\d{2}[/\-]\d{4}",
-    "pan_number"     : r"[A-Z]{5}\d{4}[A-Z]",
-    "passport_number": r"[A-Z]\d{8}",
-    "visa_number"    : r"[A-Z]{2}\d{7}",
-    "aadhaar_number" : r"\d{4}\s?\d{4}\s?\d{4}"
-}
+def _load_fields(path: str) -> dict:
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
-def build_prompt(ocr_output: dict, metadata: dict) -> str:
-    english_text = ocr_output.get("english", {}).get("text", "")
-    hindi_text   = ocr_output.get("hindi",   {}).get("text", "")
+def _resolved_from_mrz(mrz: MRZResult) -> dict:
+    return {
+        "surname"    : mrz.surname,
+        "given_names": mrz.given_names,
+        "country"    : mrz.country,
+        "birth_date" : mrz.birth_date,
+        "expiry_date": mrz.expiry_date,
+        "number"     : mrz.number,
+        "sex"        : mrz.sex
+    }
 
-    schemas_json = json.dumps(DOCUMENT_SCHEMAS, indent=2)
 
-    return f"""You are a document validation agent specialized in Indian identity documents.
-You will receive OCR output from a scanned document in English and Hindi, along with metadata.
-Your task is to:
-    1. Identify the document type (visa, pan, aadhaar, passport).
-    2. Extract all fields defined in the schema for that document type.
-    3. Cross-validate the English and Hindi versions — flag any inconsistency.
-    4. Return a single JSON object. No explanation, no markdown, only raw JSON.
+def _build_prompt(output: PipelineOutput, all_fields: list[str]) -> str:
+    resolved = _resolved_from_mrz(output.mrz) if output.mrz else {}
+    missing  = [f for f in all_fields if f not in resolved]
 
-Document schemas:
-{schemas_json}
+    resolved_str = json.dumps(resolved, ensure_ascii=False, indent=2) if resolved else "none"
+    missing_str  = ", ".join(missing) if missing else "none"
 
-English OCR text:
-{english_text}
+    return f"""You are a document validation agent for official identity documents.
 
-Hindi OCR text:
-{hindi_text}
+Already resolved via MRZ (do not re-extract):
+{resolved_str}
 
-Metadata:
-{json.dumps(metadata, ensure_ascii=False, indent=2)}
+Extract only these remaining fields: {missing_str}
 
-Return this exact JSON structure:
+Instructions:
+- Use only the Latin/English text provided
+- If a field is not found, set it to null
+- Detect the document type from the content
+- Flag any suspicious inconsistencies
+- Return only raw JSON, no explanation, no markdown
+
+Text:
+{output.english_text}
+
+Return this exact structure:
 {{
     "document_type": "<detected type>",
     "fields": {{
-        "<field_name>": "<extracted value or null if not found>"
+        "<field_name>": "<value or null>"
     }},
     "inconsistencies": [
         {{
-            "field"      : "<field name>",
-            "english"    : "<value in English>",
-            "hindi"      : "<value in Hindi>",
+            "field": "<field>",
             "description": "<what is inconsistent>"
         }}
     ],
     "confidence": "<high | medium | low>",
-    "notes": "<any relevant observation about the document>"
+    "verdict": "<genuine | suspicious>",
+    "notes": "<optional observation>"
 }}"""
 
 
-def call_gemma(prompt: str) -> str:
-    response = requests.post(OLLAMA_URL, json={
-        "model" : OLLAMA_MODEL,
+def _call_gemma(prompt: str, config: Config) -> str:
+    response = requests.post(config.ollama_url, json={
+        "model" : config.ollama_model,
         "prompt": prompt,
         "stream": False
     })
@@ -90,46 +76,31 @@ def call_gemma(prompt: str) -> str:
     return response.json()["response"]
 
 
-def parse_response(raw: str) -> dict:
+def _parse_response(raw: str) -> dict:
     clean = re.sub(r"```(?:json)?|```", "", raw).strip()
     return json.loads(clean)
 
 
-def validate_fields(fields: dict) -> list[dict]:
-    issues = []
-    for field, value in fields.items():
-        if not value:
-            continue
-        for pattern_name, pattern in VALUE_PATTERNS.items():
-            if pattern_name.replace("_number", "") in field.lower():
-                if not re.fullmatch(pattern, str(value).upper().strip()):
-                    issues.append({
-                        "field"  : field,
-                        "value"  : value,
-                        "pattern": pattern_name,
-                        "issue"  : "value does not match expected format"
-                    })
-    return issues
+def analyze(output: PipelineOutput, config: Config) -> dict:
+    fields_data = _load_fields(config.document_fields_path)
+    all_fields  = fields_data.get("default", [])
 
+    prompt = _build_prompt(output, all_fields)
+    raw    = _call_gemma(prompt, config)
+    result = _parse_response(raw)
 
-def run_agent(ocr_output: dict, metadata: dict, debug: bool = False) -> dict:
-    prompt = build_prompt(ocr_output, metadata)
+    if output.mrz:
+        result["mrz"] = {
+            "valid"      : output.mrz.valid,
+            "surname"    : output.mrz.surname,
+            "given_names": output.mrz.given_names,
+            "country"    : output.mrz.country,
+            "birth_date" : output.mrz.birth_date,
+            "expiry_date": output.mrz.expiry_date,
+            "number"     : output.mrz.number,
+            "sex"        : output.mrz.sex
+        }
 
-    if debug:
-        print("\n── PROMPT ───────────────────────────────────────────────")
-        print(prompt)
-
-    print("Calling Gemma 3...")
-    raw      = call_gemma(prompt)
-
-    if debug:
-        print("\n── RAW RESPONSE ─────────────────────────────────────────")
-        print(raw)
-
-    result           = parse_response(raw)
-    format_issues    = validate_fields(result.get("fields", {}))
-
-    if format_issues:
-        result["format_issues"] = format_issues
-
+    result["source"]         = output.source
+    result["confidence_avg"] = output.confidence_avg
     return result

@@ -37,3 +37,8 @@ Thumbs.db
 
 
 app/ocr/test.py
+
+.claude/
+settings.local.json
+
+prompt.txt
