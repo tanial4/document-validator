@@ -20,7 +20,7 @@ results/
 *.pdf
 
 # sample documents (never commit real identity documents)
-tests/samples/
+tests/.
 
 # environment variables and secrets
 .env
@@ -34,3 +34,11 @@ Thumbs.db
 .vscode/
 .idea/
 *.code-workspace
+
+
+app/ocr/test.py
+
+.claude/
+settings.local.json
+
+prompt.txt
