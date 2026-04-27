@@ -24,18 +24,21 @@ def _find_lines(lines: list[TextLine]) -> list[str]:
         if MRZ_PATTERN.match(clean) and "<" in clean:
             candidates.append(clean)
 
-    td3_lines = [l for l in candidates if len(l) == 44]
-    td2_lines = [l for l in candidates if len(l) == 36]
-    td1_lines = [l for l in candidates if len(l) == 30]
+    td3_or_mrva = [l for l in candidates if len(l) == 44]
+    td2_or_mrvb = [l for l in candidates if len(l) == 36]
+    td1 = [l for l in candidates if len(l) == 30]
 
-    if len(td3_lines) >= 2:
-        return td3_lines[:2]
+    # Visa MRV-A o pasaporte TD3: 2 líneas de 44
+    if len(td3_or_mrva) >= 2:
+        return td3_or_mrva[:2]
 
-    if len(td1_lines) >= 3:
-        return td1_lines[:3]
+    # Visa MRV-B o TD2: 2 líneas de 36
+    if len(td2_or_mrvb) >= 2:
+        return td2_or_mrvb[:2]
 
-    if len(td2_lines) >= 2:
-        return td2_lines[:2]
+    # ID card TD1: 3 líneas de 30
+    if len(td1) >= 3:
+        return td1[:3]
 
     return []
 
@@ -45,11 +48,16 @@ def _reconstruct(lines: list[str]) -> list[str]:
         return lines
 
     target = len(lines[0])
+    return [line.ljust(target, "<")[:target] for line in lines]
 
-    return [
-        line.ljust(target, "<")[:target]
-        for line in lines
-    ]
+
+def _try_checker(checker_cls, mrz_string: str):
+    try:
+        checker = checker_cls(mrz_string)
+        return checker
+    except Exception as e:
+        print(f"{checker_cls.__name__} failed: {type(e).__name__}: {e}")
+        return None
 
 
 def _build_checker(lines: list[str]):
@@ -58,16 +66,32 @@ def _build_checker(lines: list[str]):
     mrz_string = "\n".join(lines)
 
     if line_count == 2 and line_length == 44:
+        from mrz.checker.mrva import MRVACodeChecker
         from mrz.checker.td3 import TD3CodeChecker
-        return TD3CodeChecker(mrz_string)
+
+        # Si empieza con V, normalmente es visa MRV-A.
+        checkers = [MRVACodeChecker, TD3CodeChecker] if lines[0].startswith("V") else [TD3CodeChecker, MRVACodeChecker]
+
+        for checker_cls in checkers:
+            checker = _try_checker(checker_cls, mrz_string)
+            if checker is not None:
+                return checker
 
     if line_count == 2 and line_length == 36:
+        from mrz.checker.mrvb import MRVBCodeChecker
         from mrz.checker.td2 import TD2CodeChecker
-        return TD2CodeChecker(mrz_string)
+
+        # Si empieza con V, normalmente es visa MRV-B.
+        checkers = [MRVBCodeChecker, TD2CodeChecker] if lines[0].startswith("V") else [TD2CodeChecker, MRVBCodeChecker]
+
+        for checker_cls in checkers:
+            checker = _try_checker(checker_cls, mrz_string)
+            if checker is not None:
+                return checker
 
     if line_count == 3 and line_length == 30:
         from mrz.checker.td1 import TD1CodeChecker
-        return TD1CodeChecker(mrz_string)
+        return _try_checker(TD1CodeChecker, mrz_string)
 
     return None
 
@@ -88,13 +112,13 @@ def _parse(lines: list[str]) -> MRZResult | None:
             return None
 
         is_valid = bool(checker)
+        print(f"Checker type: {type(checker).__name__}")
         print(f"Checker valid: {is_valid}")
 
         try:
             f = checker.fields()
         except Exception as field_error:
             print(f"MRZ fields error: {type(field_error).__name__}: {field_error}")
-
             return MRZResult(
                 valid=False,
                 surname=None,
@@ -109,7 +133,7 @@ def _parse(lines: list[str]) -> MRZResult | None:
         return MRZResult(
             valid=is_valid,
             surname=getattr(f, "surname", None),
-            given_names=getattr(f, "name", getattr(f, "given_names", None)),
+            given_names=getattr(f, "name", getattr(f, "names", getattr(f, "given_names", None))),
             country=getattr(f, "country", None),
             birth_date=getattr(f, "birth_date", None),
             expiry_date=getattr(f, "expiry_date", None),

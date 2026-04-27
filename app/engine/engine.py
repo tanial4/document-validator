@@ -1,6 +1,8 @@
 import os
+from pathlib import Path
 
 from app.engine.base import OCREngine
+from app.engine.image import load_image
 from models import Config, TextLine
 os.environ["PADDLE_DISABLE_MKLDNN"] = "1"
 
@@ -15,14 +17,20 @@ class PaddleOCRAdapter(OCREngine):
         from paddleocr import PaddleOCR
         self._threshold = config.confidence_threshold
         self._engine = PaddleOCR(
-            lang="hi",
+            lang="en",
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
             **paddle_kwargs,
         )
 
-    def extract(self, image: np.ndarray) -> list[TextLine]:
+    def extract(self,
+                image: np.ndarray | str | Path,
+                max_side: int = 1_600) -> list[TextLine]:
+
+        if isinstance(image, (str, Path)):
+            image = load_image(image, max_side)
+
         lines: list[TextLine] = []
         for result in self._engine.predict(image):
             res    = result.get("res", result)

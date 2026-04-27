@@ -1,8 +1,10 @@
 import numpy as np
+from app.backends.agent import analyze
 from models import Config, PipelineOutput
-from app.language import filter_latin
-from app.mrz      import detect
-from app.agent    import analyze
+from app.language      import filter_latin
+from app.mrz           import detect
+
+from app.backends.base import LLMBackend
 
 
 def _avg_confidence(lines: list) -> float:
@@ -14,7 +16,9 @@ def _avg_confidence(lines: list) -> float:
 def run(image: np.ndarray,
         ocr_engine,
         config: Config,
+        backend: LLMBackend,
         debug: bool = False) -> tuple[PipelineOutput | None, dict]:
+
     lines = ocr_engine.extract(image)
 
     if not lines:
@@ -39,8 +43,21 @@ def run(image: np.ndarray,
         print(f"English lines    : {len(english_lines)}")
 
     english_text = "\n".join(l.text for l in english_lines)
-    mrz          = detect(english_lines)
-    source       = "mrz+gemma" if (mrz and mrz.valid) else "gemma"
+    english_lines = filter_latin(lines)
+
+    mrz = detect(english_lines)
+
+    print(f"detect() returned: {mrz}")
+
+    mrz_verified   = mrz if (mrz and mrz.valid)  else None
+    mrz_unverified = mrz if (mrz and not mrz.valid) else None
+
+    if mrz_verified:
+        source = "mrz+gemma"
+    elif mrz_unverified:
+        source = "mrz_partial+gemma"
+    else:
+        source = "gemma"
 
     if debug:
         print(f"MRZ detected     : {mrz is not None}")
@@ -48,13 +65,13 @@ def run(image: np.ndarray,
         print(f"Source           : {source}")
 
     output = PipelineOutput(
-        mrz           = mrz,
-        english_lines = english_lines,
-        english_text  = english_text,
-        source        = source,
-        confidence_avg= round(confidence_avg, 4),
-        raw_lines     = lines  # ← agregar esto
+        mrz_verified   = mrz_verified,
+        mrz_unverified = mrz_unverified,
+        english_lines  = english_lines,
+        english_text   = english_text,
+        source         = source,
+        confidence_avg = round(confidence_avg, 4),
+        raw_lines      = lines
     )
 
-    print(f"MRZ en output: {output.mrz}")
-    return output, analyze(output, config)
+    return output, analyze(output, config, backend)

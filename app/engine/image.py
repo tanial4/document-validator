@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image as PILImage
 
 
-def load_image(path: str | Path, max_side: int = 1_400) -> np.ndarray:
+def load_image(path: str | Path, max_side: int = 1_600) -> np.ndarray:
     img = PILImage.open(path).convert("RGB")
     w, h = img.size
     longest = max(w, h)

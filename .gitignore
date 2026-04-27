@@ -20,7 +20,7 @@ results/
 *.pdf
 
 # sample documents (never commit real identity documents)
-tests/samples/
+tests/.
 
 # environment variables and secrets
 .env
